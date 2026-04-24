@@ -1,13 +1,13 @@
-# Terraform                                                                                                                    
-  **/.terraform/  
-  *.tfstate
-  *.tfstate.backup
-  *.tfvars
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfvars
 
 # Python
-  __pycache__/                                                                                                                   
-  *.pyc           
-  .venv/
+__pycache__/
+*.pyc
+.venv/
 
-  # 環境変数
-  .env
+# 環境変数
+.env
