@@ -6,8 +6,11 @@ services:
       - "8080:8080"
     environment:
       DATABASE_URL: postgresql+psycopg://app:postgres@db:5432/todos
+      BQ_PROJECT_ID: terraform-practice-494215
+      GOOGLE_APPLICATION_CREDENTIALS: /gcp/adc.json
     volumes:
       - ./app:/app/app
+      - ${HOME}/.config/gcloud/application_default_credentials.json:/gcp/adc.json:ro
     command: uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
     depends_on:
       db:
