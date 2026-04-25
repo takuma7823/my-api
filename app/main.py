@@ -2,6 +2,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy.orm import Session
 
 from app import models, schemas
+from app.bq import log_todo_event
 from app.db import Base, engine, get_db
 
 Base.metadata.create_all(bind=engine)
@@ -30,6 +31,7 @@ def create_todo(payload: schemas.TodoCreate, db: Session = Depends(get_db)):
     db.add(todo)
     db.commit()
     db.refresh(todo)
+    log_todo_event(todo.id, "created", todo.title)
     return todo
 
 
@@ -38,6 +40,8 @@ def delete_todo(todo_id: int, db: Session = Depends(get_db)):
     todo = db.query(models.Todo).filter(models.Todo.id == todo_id).first()
     if todo is None:
         raise HTTPException(status_code=404, detail="Todo not found")
+    title = todo.title
     db.delete(todo)
     db.commit()
+    log_todo_event(todo_id, "deleted", title)
     return {"message": "deleted"}
