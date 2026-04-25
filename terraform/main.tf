@@ -16,13 +16,13 @@ terraform {
 }
 
 provider "google" {
-  project = "terraform-practice-494215"
-  region  = "asia-northeast1"
+  project = var.project_id
+  region  = var.region
 }
 
 resource "google_storage_bucket" "tfstate" {
   name     = "my-api-tfstate-494215"
-  location = "asia-northeast1"
+  location = var.region
 
   uniform_bucket_level_access = true
   versioning {
@@ -33,18 +33,18 @@ resource "google_storage_bucket" "tfstate" {
 resource "google_artifact_registry_repository" "my_api" {
   repository_id = "my-api"
   format        = "DOCKER"
-  location      = "asia-northeast1"
+  location      = var.region
 }
 
 resource "google_cloud_run_v2_service" "my_api" {
   name     = "my-api"
-  location = "asia-northeast1"
+  location = var.region
 
   template {
     service_account = google_service_account.cloud_run.email
 
     containers {
-      image = "asia-northeast1-docker.pkg.dev/terraform-practice-494215/my-api/my-api:latest"
+      image = "${var.region}-docker.pkg.dev/${var.project_id}/my-api/my-api:latest"
       ports {
         container_port = 8080
       }
@@ -57,6 +57,14 @@ resource "google_cloud_run_v2_service" "my_api" {
             version = "latest"
           }
         }
+      }
+      env {
+        name  = "BQ_PROJECT_ID"
+        value = var.project_id
+      }
+      volume_mounts {
+        name       = "cloudsql"
+        mount_path = "/cloudsql"
       }
     }
 
@@ -76,7 +84,7 @@ resource "google_cloud_run_v2_service" "my_api" {
 
 resource "google_cloud_run_v2_service_iam_member" "public" {
   name     = google_cloud_run_v2_service.my_api.name
-  location = "asia-northeast1"
+  location = var.region
   role     = "roles/run.invoker"
   member   = "allUsers"
 }
@@ -108,7 +116,7 @@ resource "google_secret_manager_secret_version" "db_password" {
 resource "google_sql_database_instance" "my_api" {
   name             = "my-api-db"
   database_version = "POSTGRES_15"
-  region           = "asia-northeast1"
+  region           = var.region
 
   settings {
     tier              = "db-f1-micro"
@@ -149,7 +157,7 @@ resource "google_service_account" "cloud_run" {
 
 # Cloud SQL に接続する権限
 resource "google_project_iam_member" "cloud_run_sql_client" {
-  project = "terraform-practice-494215"
+  project = var.project_id
   role    = "roles/cloudsql.client"
   member  = "serviceAccount:${google_service_account.cloud_run.email}"
 }
@@ -178,4 +186,70 @@ resource "google_secret_manager_secret_iam_member" "cloud_run_database_url" {
   secret_id = google_secret_manager_secret.database_url.secret_id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.cloud_run.email}"
+}
+
+resource "google_bigquery_dataset" "analytics" {
+  dataset_id  = "analytics"
+  location    = var.region
+  description = "Analytics dataset for my-api events"
+
+  # 学習用なのでデータセット削除時にテーブルごと消せるように
+  delete_contents_on_destroy = true
+}
+
+resource "google_bigquery_table" "todo_events" {
+  dataset_id = google_bigquery_dataset.analytics.dataset_id
+  table_id   = "todo_events"
+
+  deletion_protection = false  # 学習用。本番では true
+
+  time_partitioning {
+    type  = "DAY"
+    field = "event_time"
+  }
+
+  schema = jsonencode([
+    {
+      name = "event_id"
+      type = "STRING"
+      mode = "REQUIRED"
+      description = "Unique event identifier (UUID)"
+    },
+    {
+      name = "todo_id"
+      type = "INT64"
+      mode = "REQUIRED"
+      description = "Reference to Cloud SQL todos.id"
+    },
+    {
+      name = "action"
+      type = "STRING"
+      mode = "REQUIRED"
+      description = "created or deleted"
+    },
+    {
+      name = "title"
+      type = "STRING"
+      mode = "NULLABLE"
+      description = "Todo title at event time"
+    },
+    {
+      name = "event_time"
+      type = "TIMESTAMP"
+      mode = "REQUIRED"
+      description = "Event occurrence time"
+    },
+  ])
+}
+
+resource "google_project_iam_member" "cloud_run_bigquery_data_editor" {
+  project = var.project_id
+  role    = "roles/bigquery.dataEditor"
+  member  = "serviceAccount:${google_service_account.cloud_run.email}"
+}
+
+resource "google_project_iam_member" "cloud_run_bigquery_job_user" {
+  project = var.project_id
+  role    = "roles/bigquery.jobUser"
+  member  = "serviceAccount:${google_service_account.cloud_run.email}"
 }
