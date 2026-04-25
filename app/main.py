@@ -1,8 +1,12 @@
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, HTTPException
+from sqlalchemy.orm import Session
+
+from app import models, schemas
+from app.db import Base, engine, get_db
+
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
-todos = []
-next_id = 1
 
 
 @app.get("/")
@@ -15,22 +19,25 @@ def health_check():
     return {"status": "ok"}
 
 
-@app.get("/todos")
-def get_todos():
-    return todos
+@app.get("/todos", response_model=list[schemas.TodoRead])
+def get_todos(db: Session = Depends(get_db)):
+    return db.query(models.Todo).all()
 
 
-@app.post("/todos")
-def create_todo(title: str):
-    global next_id
-    todo = {"id": next_id, "title": title, "done": False}
-    todos.append(todo)
-    next_id += 1
+@app.post("/todos", response_model=schemas.TodoRead)
+def create_todo(payload: schemas.TodoCreate, db: Session = Depends(get_db)):
+    todo = models.Todo(title=payload.title)
+    db.add(todo)
+    db.commit()
+    db.refresh(todo)
     return todo
 
 
 @app.delete("/todos/{todo_id}")
-def delete_todo(todo_id: int):
-    global todos
-    todos = [t for t in todos if t["id"] != todo_id]
+def delete_todo(todo_id: int, db: Session = Depends(get_db)):
+    todo = db.query(models.Todo).filter(models.Todo.id == todo_id).first()
+    if todo is None:
+        raise HTTPException(status_code=404, detail="Todo not found")
+    db.delete(todo)
+    db.commit()
     return {"message": "deleted"}
